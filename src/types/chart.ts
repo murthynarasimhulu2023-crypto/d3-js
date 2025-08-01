@@ -12,3 +12,19 @@ export interface ChartConfig {
   data?: any[];
   [key: string]: any;
 }
+
+export interface SavedChartCode {
+  [chartId: string]: string;
+}
+
+export interface EcoreModel {
+  name: string;
+  elements: EcoreElement[];
+}
+
+export interface EcoreElement {
+  type: string;
+  name: string;
+  attributes: { [key: string]: any };
+  children?: EcoreElement[];
+}

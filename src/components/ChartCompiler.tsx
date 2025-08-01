@@ -1,8 +1,10 @@
 import React, { useState, useCallback } from 'react';
-import { Play, Copy, RotateCcw, ExternalLink } from 'lucide-react';
+import { Play, Copy, RotateCcw, ExternalLink, Save, Download, FileCode } from 'lucide-react';
 import Editor from '@monaco-editor/react';
 import { ChartType } from '../types/chart';
 import ChartRenderer from './ChartRenderer';
+import EcoreConverter from './EcoreConverter';
+import { codeStorage } from '../services/codeStorage';
 
 interface ChartCompilerProps {
   selectedChart: ChartType | null;
@@ -66,8 +68,33 @@ svg.append("g")
 const chart = svg.node();`;
 
 const ChartCompiler: React.FC<ChartCompilerProps> = ({ selectedChart }) => {
-  const [code, setCode] = useState(defaultBarChartCode);
+  const [code, setCode] = useState(() => {
+    if (selectedChart) {
+      const savedCode = codeStorage.getCode(selectedChart.id);
+      return savedCode || defaultBarChartCode;
+    }
+    return defaultBarChartCode;
+  });
   const [isRunning, setIsRunning] = useState(false);
+  const [showEcoreConverter, setShowEcoreConverter] = useState(false);
+
+  // Update code when chart selection changes
+  React.useEffect(() => {
+    if (selectedChart) {
+      const savedCode = codeStorage.getCode(selectedChart.id);
+      if (savedCode) {
+        setCode(savedCode);
+      } else {
+        // Set default code based on chart type
+        setCode(getDefaultCodeForChart(selectedChart));
+      }
+    }
+  }, [selectedChart]);
+
+  const getDefaultCodeForChart = (chart: ChartType): string => {
+    // Return chart-specific default code or the general default
+    return defaultBarChartCode;
+  };
 
   const handleRunCode = useCallback(() => {
     setIsRunning(true);
@@ -80,8 +107,43 @@ const ChartCompiler: React.FC<ChartCompilerProps> = ({ selectedChart }) => {
   }, [code]);
 
   const handleReset = useCallback(() => {
-    setCode(defaultBarChartCode);
-  }, []);
+    if (selectedChart) {
+      const defaultCode = getDefaultCodeForChart(selectedChart);
+      setCode(defaultCode);
+      codeStorage.deleteCode(selectedChart.id);
+    }
+  }, [selectedChart]);
+
+  const handleSaveCode = useCallback(() => {
+    if (selectedChart) {
+      codeStorage.saveCode(selectedChart.id, code);
+      // Show a brief success indicator
+      const button = document.querySelector('[data-save-button]') as HTMLButtonElement;
+      if (button) {
+        const originalText = button.textContent;
+        button.textContent = 'Saved!';
+        button.style.backgroundColor = '#10b981';
+        setTimeout(() => {
+          button.textContent = originalText;
+          button.style.backgroundColor = '';
+        }, 1000);
+      }
+    }
+  }, [selectedChart, code]);
+
+  const handleDownloadCode = useCallback(() => {
+    if (selectedChart) {
+      const blob = new Blob([code], { type: 'text/javascript' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${selectedChart.id}.js`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  }, [selectedChart, code]);
 
   const handleOpenObservable = useCallback(() => {
     if (selectedChart) {
@@ -90,7 +152,7 @@ const ChartCompiler: React.FC<ChartCompilerProps> = ({ selectedChart }) => {
   }, [selectedChart]);
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-white">
+    <div className="flex-1 flex flex-col h-full bg-white overflow-hidden">
       {/* Header */}
       <div className="p-6 border-b border-gray-200">
         <div className="flex items-center justify-between">
@@ -116,12 +178,42 @@ const ChartCompiler: React.FC<ChartCompilerProps> = ({ selectedChart }) => {
               </button>
             )}
             <button
+              onClick={() => setShowEcoreConverter(!showEcoreConverter)}
+              className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                showEcoreConverter 
+                  ? 'bg-blue-100 text-blue-700' 
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              }`}
+            >
+              <FileCode className="w-4 h-4" />
+              Ecore
+            </button>
+            <button
               onClick={handleCopyCode}
               className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
             >
               <Copy className="w-4 h-4" />
               Copy
             </button>
+            {selectedChart && (
+              <>
+                <button
+                  onClick={handleSaveCode}
+                  data-save-button
+                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <Save className="w-4 h-4" />
+                  Save
+                </button>
+                <button
+                  onClick={handleDownloadCode}
+                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <Download className="w-4 h-4" />
+                  Download
+                </button>
+              </>
+            )}
             <button
               onClick={handleReset}
               className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
@@ -142,9 +234,9 @@ const ChartCompiler: React.FC<ChartCompilerProps> = ({ selectedChart }) => {
       </div>
 
       {/* Split Panel */}
-      <div className="flex-1 flex">
+      <div className="flex-1 flex overflow-hidden">
         {/* Code Editor */}
-        <div className="w-1/2 border-r border-gray-200 flex flex-col">
+        <div className={`${showEcoreConverter ? 'w-1/3' : 'w-1/2'} border-r border-gray-200 flex flex-col`}>
           <div className="p-4 bg-gray-50 border-b border-gray-200">
             <h3 className="text-sm font-semibold text-gray-900">Code Editor</h3>
             <p className="text-xs text-gray-500 mt-1">
@@ -172,8 +264,26 @@ const ChartCompiler: React.FC<ChartCompilerProps> = ({ selectedChart }) => {
           </div>
         </div>
 
+        {/* Ecore Converter */}
+        {showEcoreConverter && (
+          <div className="w-1/3 border-r border-gray-200 flex flex-col">
+            <div className="p-4 bg-gray-50 border-b border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-900">D3 to Ecore Converter</h3>
+              <p className="text-xs text-gray-500 mt-1">
+                Convert D3 code to Ecore model representation
+              </p>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <EcoreConverter 
+                d3Code={code} 
+                chartName={selectedChart?.name || 'Chart'} 
+              />
+            </div>
+          </div>
+        )}
+
         {/* Chart Preview */}
-        <div className="w-1/2 flex flex-col">
+        <div className={`${showEcoreConverter ? 'w-1/3' : 'w-1/2'} flex flex-col`}>
           <div className="p-4 bg-gray-50 border-b border-gray-200">
             <h3 className="text-sm font-semibold text-gray-900">Chart Preview</h3>
             <p className="text-xs text-gray-500 mt-1">
